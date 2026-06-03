@@ -1,0 +1,18 @@
+# No copiar artefactos locales al contexto de build: deben generarse DENTRO
+# del contenedor (los symlinks de workspaces de Windows no sirven en Linux).
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+
+# Git / entorno / logs
+.git
+.gitignore
+.env
+.env.local
+*.log
+npm-debug.log*
+
+# Docs y datos no necesarios para ejecutar
+data

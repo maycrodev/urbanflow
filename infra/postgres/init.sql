@@ -86,6 +86,7 @@ CREATE SCHEMA IF NOT EXISTS audit;
 
 CREATE TABLE IF NOT EXISTS audit.event_log (
   audit_id       UUID PRIMARY KEY,
+  seq            BIGSERIAL UNIQUE,          -- orden monotónico real de inserción (cadena)
   category       TEXT NOT NULL CHECK (category IN ('REROUTE','TARIFF_CHANGE','SIGNAL_PRIORITY','PAYMENT')),
   correlation_id TEXT NOT NULL,
   actor          TEXT NOT NULL,

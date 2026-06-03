@@ -10,11 +10,12 @@
 # ======================================================================
 name: urbanflow
 
+# Imagen única compartida por todos los servicios Node. SOLO un servicio
+# (route-planning-service) define `build:` para construirla una vez; el resto
+# la reutiliza vía `image:`. Esto evita la colisión "image already exists" al
+# construir en paralelo y acelera el arranque (1 build en lugar de 13).
 x-app: &app-base
   image: urbanflow-app:latest
-  build:
-    context: .
-    dockerfile: Dockerfile
   env_file: .env
   restart: unless-stopped
   depends_on:
@@ -133,6 +134,10 @@ services:
 
   route-planning-service:
     <<: *app-base
+    # Único servicio que construye la imagen urbanflow-app:latest (los demás la reutilizan).
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: uf-route-planning
     command: node services/route-planning-service/dist/index.js
     environment:

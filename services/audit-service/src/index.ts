@@ -15,13 +15,26 @@ function categoryFor(sourceTopic: string): AuditRecord['category'] | null {
   }
 }
 
+/**
+ * Serialización canónica: claves ordenadas recursivamente. Necesaria porque
+ * PostgreSQL JSONB no preserva el orden de claves; sin esto, el hash calculado
+ * al insertar no coincidiría con el recalculado al leer desde JSONB.
+ */
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
+}
+
 /** Hash encadenado tipo blockchain ligero (tamper-evidence). */
 function chainHash(prevHash: string, record: { auditId: string; occurredAt: string; payload: unknown }): string {
   return createHash('sha256')
     .update(prevHash)
     .update(record.auditId)
     .update(record.occurredAt)
-    .update(JSON.stringify(record.payload))
+    .update(canonical(record.payload))
     .digest('hex');
 }
 
@@ -51,7 +64,7 @@ async function main() {
   };
 
   async function lastHash(): Promise<string> {
-    const r = await pool.query('SELECT hash FROM audit.event_log ORDER BY recorded_at DESC, audit_id DESC LIMIT 1');
+    const r = await pool.query('SELECT hash FROM audit.event_log ORDER BY seq DESC LIMIT 1');
     return r.rowCount ? r.rows[0].hash : 'GENESIS';
   }
 
@@ -112,7 +125,7 @@ async function main() {
           const r = await pool.query(
             `SELECT audit_id, occurred_at, payload, prev_hash, hash
              FROM audit.event_log WHERE audit_id <> '00000000-0000-0000-0000-000000000000'
-             ORDER BY recorded_at ASC, audit_id ASC`,
+             ORDER BY seq ASC`,
           );
           let prev = 'GENESIS';
           let broken: { auditId: string; expected: string; stored: string } | null = null;

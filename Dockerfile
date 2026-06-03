@@ -24,8 +24,12 @@ COPY simulator/package.json simulator/
 RUN npm install
 
 # Copiar el código fuente y compilar todos los proyectos (project references).
+# --force evita falsos "up to date" de la caché incremental de TypeScript.
 COPY . .
-RUN npm run build
+RUN npm run build -- --force
+# Verificación: si no se generó el dist, fallar la build (no crear imagen rota).
+RUN test -f shared/dist/index.js && test -f services/api-gateway/dist/index.js \
+    || (echo "ERROR: el build de TypeScript no genero dist/" && exit 1)
 
 # Imagen runtime delgada.
 FROM node:20-alpine AS runtime
