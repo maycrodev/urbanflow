@@ -10,9 +10,14 @@ const log = createLogger('dashboard');
 const app = express();
 
 // Proxy mismo-origen hacia el gateway (evita CORS en el navegador).
+// Sin montar en '/api' (Express quitaría el prefijo); se filtra por ruta y se
+// reenvía la URL COMPLETA, que es la que el gateway sabe enrutar (/api/...).
 app.use(
-  '/api',
-  createProxyMiddleware({ target: GATEWAY_URL, changeOrigin: true }),
+  createProxyMiddleware({
+    target: GATEWAY_URL,
+    changeOrigin: true,
+    pathFilter: (path) => path.startsWith('/api'),
+  }),
 );
 
 // Servir el panel estático.
