@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UrbanFlow · Centro de Control de Movilidad</title>
+  <style>
+    :root { --bg:#0b1020; --card:#151c33; --accent:#3ddc97; --warn:#ffb454; --bad:#ff6b6b; --txt:#e6ecff; --muted:#8a96b8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: 'Segoe UI', system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+    header { padding:18px 28px; background:linear-gradient(90deg,#101937,#162043); border-bottom:1px solid #243056; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { margin:0; font-size:20px; letter-spacing:.5px; }
+    header .sub { color:var(--muted); font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; padding:24px 28px; }
+    .card { background:var(--card); border:1px solid #243056; border-radius:14px; padding:18px; }
+    .kpi { display:flex; flex-direction:column; gap:6px; }
+    .kpi .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.6px; }
+    .kpi .value { font-size:30px; font-weight:700; }
+    .kpi .value.accent { color:var(--accent); }
+    .section { padding:0 28px 28px; }
+    .section h2 { font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin:18px 0 10px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #243056; }
+    th { color:var(--muted); font-weight:600; }
+    .pill { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .pill.ok { background:rgba(61,220,151,.15); color:var(--accent); }
+    .pill.warn { background:rgba(255,180,84,.15); color:var(--warn); }
+    .pill.bad { background:rgba(255,107,107,.15); color:var(--bad); }
+    .bar { height:8px; background:#243056; border-radius:6px; overflow:hidden; }
+    .bar > span { display:block; height:100%; background:var(--accent); }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .muted { color:var(--muted); }
+    footer { padding:14px 28px; color:var(--muted); font-size:12px; border-top:1px solid #243056; }
+    code { background:#0e1530; padding:1px 6px; border-radius:5px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>🚦 UrbanFlow · Centro de Control de Movilidad</h1>
+      <div class="sub">Panel de la Alcaldía — KPIs en tiempo real · auditoría regulatoria</div>
+    </div>
+    <div class="sub">Actualizado: <span id="ts">—</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="card kpi"><span class="label">Índice de puntualidad</span><span id="punctuality" class="value accent">—</span></div>
+    <div class="card kpi"><span class="label">Emisiones evitadas (kg CO₂)</span><span id="emissions" class="value accent">—</span></div>
+    <div class="card kpi"><span class="label">Ocupación promedio</span><span id="occupancy" class="value">—</span></div>
+    <div class="card kpi"><span class="label">Viajes / Recaudación</span><span id="trips" class="value">—</span></div>
+  </div>
+
+  <div class="section">
+    <div class="row2">
+      <div class="card">
+        <h2 style="margin-top:0">Flujo por corredor</h2>
+        <table><thead><tr><th>Corredor</th><th>Vehículos</th><th>Vel. media</th><th>Puntualidad</th></tr></thead>
+          <tbody id="corridors"><tr><td colspan="4" class="muted">cargando…</td></tr></tbody></table>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">Predicción de congestión (30 min)</h2>
+        <table><thead><tr><th>Corredor</th><th>Riesgo</th><th>Vel. prevista</th></tr></thead>
+          <tbody id="predictions"><tr><td colspan="3" class="muted">cargando…</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="card">
+      <h2 style="margin-top:0">Auditoría regulatoria · cadena de trazabilidad
+        <span id="chain" class="pill warn" style="margin-left:8px">verificando…</span>
+      </h2>
+      <table><thead><tr><th>Categoría</th><th>Actor</th><th>Correlación</th><th>Ocurrió</th></tr></thead>
+        <tbody id="audit"><tr><td colspan="4" class="muted">cargando…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <footer>
+    UrbanFlow Technologies Ltda. · Arquitectura de microservicios + Kafka event streaming ·
+    Datos vía <code>api-gateway</code>. Refresco cada 4 s.
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); }
+
+    function riskPill(risk) {
+      const cls = risk >= 0.6 ? 'bad' : risk >= 0.35 ? 'warn' : 'ok';
+      return `<span class="pill ${cls}">${(risk*100).toFixed(0)}%</span>`;
+    }
+
+    async function refresh() {
+      $('ts').textContent = new Date().toLocaleTimeString();
+      try {
+        const k = await getJSON('/api/analytics/kpis');
+        $('punctuality').textContent = k.kpis.indice_puntualidad_pct != null ? k.kpis.indice_puntualidad_pct + ' %' : '—';
+        $('emissions').textContent = k.kpis.emisiones_evitadas_kg ?? 0;
+        $('occupancy').textContent = k.kpis.ocupacion_promedio_pasajeros ?? 0;
+        $('trips').textContent = (k.extras.viajes_totales ?? 0) + ' · $' + (k.extras.recaudacion_total ?? 0);
+        const flow = k.kpis.flujo_por_corredor || [];
+        $('corridors').innerHTML = flow.length ? flow.map(c => `
+          <tr><td>${c.route_id}</td><td>${c.active_vehicles}</td><td>${c.avg_speed} km/h</td>
+          <td><div class="bar"><span style="width:${c.punctuality_pct}%"></span></div>${c.punctuality_pct}%</td></tr>`).join('')
+          : '<tr><td colspan="4" class="muted">sin telemetría reciente</td></tr>';
+      } catch (e) { $('corridors').innerHTML = '<tr><td colspan="4" class="muted">analytics no disponible</td></tr>'; }
+
+      try {
+        const preds = await getJSON('/api/congestion/predictions');
+        $('predictions').innerHTML = preds.length ? preds.map(p => `
+          <tr><td>${p.corridorId}</td><td>${riskPill(p.congestionRisk)}</td><td>${p.predictedSpeedKmh} km/h</td></tr>`).join('')
+          : '<tr><td colspan="3" class="muted">sin predicciones</td></tr>';
+      } catch (e) { $('predictions').innerHTML = '<tr><td colspan="3" class="muted">predicción no disponible</td></tr>'; }
+
+      try {
+        const audit = await getJSON('/api/audit/audit?limit=8');
+        $('audit').innerHTML = audit.length ? audit.map(a => `
+          <tr><td><span class="pill ok">${a.category}</span></td><td>${a.actor}</td>
+          <td class="muted">${String(a.correlation_id).slice(0,12)}…</td>
+          <td class="muted">${new Date(a.occurred_at).toLocaleTimeString()}</td></tr>`).join('')
+          : '<tr><td colspan="4" class="muted">sin eventos auditables aún</td></tr>';
+        const v = await getJSON('/api/audit/audit/verify');
+        const pill = $('chain');
+        pill.textContent = v.intact ? `íntegra (${v.records} registros)` : 'INTEGRIDAD ROTA';
+        pill.className = 'pill ' + (v.intact ? 'ok' : 'bad');
+      } catch (e) { $('audit').innerHTML = '<tr><td colspan="4" class="muted">auditoría no disponible</td></tr>'; }
+    }
+
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>

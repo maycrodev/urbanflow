@@ -1,0 +1,16 @@
+{
+  "name": "@urbanflow/simulator",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@urbanflow/shared": "1.0.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "urbanflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UrbanFlow Technologies - Plataforma Inteligente de Movilidad Urbana (Hackaton 5)",
+  "license": "MIT",
+  "workspaces": [
+    "shared",
+    "services/*",
+    "dashboard",
+    "simulator"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "infra:up": "docker compose up -d redpanda postgres timescaledb neo4j redis redpanda-console",
+    "infra:down": "docker compose down",
+    "up": "docker compose up -d --build",
+    "down": "docker compose down -v",
+    "logs": "docker compose logs -f",
+    "seed:neo4j": "node scripts/seed-neo4j.mjs",
+    "simulate": "npm run dev --workspace simulator"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.3"
+  }
+}

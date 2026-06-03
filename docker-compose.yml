@@ -1,0 +1,281 @@
+# ======================================================================
+# UrbanFlow Technologies - Plataforma Inteligente de Movilidad Urbana
+# Arquitectura: microservicios + event streaming (Redpanda/Kafka)
+# Polyglot persistence: TimescaleDB, PostgreSQL, Neo4j, Redis
+#
+# Uso:
+#   cp .env.example .env
+#   docker compose up -d --build
+#   docker compose logs -f
+# ======================================================================
+name: urbanflow
+
+x-app: &app-base
+  image: urbanflow-app:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    redpanda:
+      condition: service_healthy
+
+services:
+  # ==================== INFRAESTRUCTURA ====================
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    container_name: uf-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=localhost:8082
+    ports:
+      - "19092:19092"   # acceso Kafka desde el host
+      - "9644:9644"     # admin API
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.*true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: uf-redpanda-console
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+    ports:
+      - "8085:8080"     # UI de topics/eventos: http://localhost:8085
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: uf-postgres
+    environment:
+      POSTGRES_USER: urbanflow
+      POSTGRES_PASSWORD: urbanflow_secret
+      POSTGRES_DB: urbanflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanflow -d urbanflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:2.15.3-pg16
+    container_name: uf-timescaledb
+    environment:
+      POSTGRES_USER: urbanflow
+      POSTGRES_PASSWORD: urbanflow_secret
+      POSTGRES_DB: telemetry
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./infra/timescaledb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanflow -d telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.22-community
+    container_name: uf-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/urbanflow_secret
+      NEO4J_server_memory_pagecache_size: 256M
+      NEO4J_server_memory_heap_max__size: 512M
+    ports:
+      - "7474:7474"     # Neo4j Browser: http://localhost:7474
+      - "7687:7687"     # bolt
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    container_name: uf-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ==================== MVP 1 ====================
+
+  route-planning-service:
+    <<: *app-base
+    container_name: uf-route-planning
+    command: node services/route-planning-service/dist/index.js
+    environment:
+      PORT: 3001
+    ports: ["3001:3001"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+
+  tracking-service:
+    <<: *app-base
+    container_name: uf-tracking
+    command: node services/tracking-service/dist/index.js
+    environment:
+      PORT: 3002
+    ports: ["3002:3002"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  payment-service:
+    <<: *app-base
+    container_name: uf-payment
+    command: node services/payment-service/dist/index.js
+    environment:
+      PORT: 3003
+    ports: ["3003:3003"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  # ==================== MVP 2 ====================
+
+  traffic-signal-service:
+    <<: *app-base
+    container_name: uf-traffic-signal
+    command: node services/traffic-signal-service/dist/index.js
+    environment:
+      PORT: 3004
+    ports: ["3004:3004"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  sharing-service:
+    <<: *app-base
+    container_name: uf-sharing
+    command: node services/sharing-service/dist/index.js
+    environment:
+      PORT: 3005
+    ports: ["3005:3005"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # ==================== MVP 3 ====================
+
+  congestion-prediction-service:
+    <<: *app-base
+    container_name: uf-congestion
+    command: node services/congestion-prediction-service/dist/index.js
+    environment:
+      PORT: 3006
+    ports: ["3006:3006"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+
+  notification-service:
+    <<: *app-base
+    container_name: uf-notification
+    command: node services/notification-service/dist/index.js
+    environment:
+      PORT: 3007
+    ports: ["3007:3007"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  analytics-service:
+    <<: *app-base
+    container_name: uf-analytics
+    command: node services/analytics-service/dist/index.js
+    environment:
+      PORT: 3008
+    ports: ["3008:3008"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # ==================== MVP 4 ====================
+
+  audit-service:
+    <<: *app-base
+    container_name: uf-audit
+    command: node services/audit-service/dist/index.js
+    environment:
+      PORT: 3009
+    ports: ["3009:3009"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  # ==================== GATEWAY + DASHBOARD ====================
+
+  api-gateway:
+    <<: *app-base
+    container_name: uf-gateway
+    command: node services/api-gateway/dist/index.js
+    environment:
+      PORT: 8080
+    ports: ["8080:8080"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+
+  dashboard:
+    <<: *app-base
+    container_name: uf-dashboard
+    command: node dashboard/dist/index.js
+    environment:
+      PORT: 8090
+      GATEWAY_URL: http://api-gateway:8080
+    ports: ["8090:8090"]
+    depends_on:
+      - api-gateway
+
+  # Generador de eventos (telemetría GPS, viajes) para demostrar el sistema.
+  simulator:
+    <<: *app-base
+    container_name: uf-simulator
+    command: node simulator/dist/index.js
+    environment:
+      SIM_VEHICLES: "40"
+      SIM_INTERVAL_MS: "1000"
+    depends_on:
+      redpanda: { condition: service_healthy }
+      tracking-service: { condition: service_started }
+
+volumes:
+  redpanda-data:
+  postgres-data:
+  timescale-data:
+  neo4j-data:

@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "shared" },
+    { "path": "services/route-planning-service" },
+    { "path": "services/tracking-service" },
+    { "path": "services/payment-service" },
+    { "path": "services/traffic-signal-service" },
+    { "path": "services/sharing-service" },
+    { "path": "services/congestion-prediction-service" },
+    { "path": "services/notification-service" },
+    { "path": "services/analytics-service" },
+    { "path": "services/audit-service" },
+    { "path": "services/api-gateway" },
+    { "path": "dashboard" },
+    { "path": "simulator" }
+  ]
+}
